@@ -1,7 +1,7 @@
 #pragma once
 
 #include <filesystem>
-#include <vector>
+#include <unordered_map>
 #include <string>
 
 #include "Resource.h"
@@ -10,15 +10,16 @@
 class ResourceManager
 {
 public:
-    Resource& CreateResource(const std::string& name);
-
     void SetResourcePath(const std::filesystem::path& path);
 
     void ParseResources();
-    void ParseResource(const std::filesystem::path& path);
+    void ParseResourceFolder(const std::filesystem::path& path);
+
+    bool FindManifestFile(const std::filesystem::path& directory, std::filesystem::path& file);
+    bool FindSQLFile(const std::filesystem::path& directory, std::filesystem::path& file);
+    void ParseManifestFile(Resource& resource);
 
 private:
     std::filesystem::path m_ResourcePath;
-
-    std::vector<Resource> m_Resources;
+    std::unordered_map<std::string, Resource> m_Resources;
 };
