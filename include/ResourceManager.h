@@ -6,7 +6,6 @@
 
 #include "Resource.h"
 
-
 class ResourceManager
 {
 public:
@@ -17,6 +16,8 @@ public:
     void UnloadResources();
     void LoadResources();
     void LoadFolder(const std::filesystem::path& directory);
+
+    void Debug();
 
 private:
     void LoadCategory(const std::filesystem::path& directory);
