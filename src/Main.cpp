@@ -14,7 +14,7 @@ int main(int argc, char** argv)
         manager.SetResourcePath("resources");
     }
 
-    manager.ParseResources();
+    manager.LoadResources();
 
     return 0;
 }

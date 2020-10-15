@@ -10,16 +10,19 @@
 class ResourceManager
 {
 public:
+    ~ResourceManager();
+
     void SetResourcePath(const std::filesystem::path& path);
 
-    void ParseResources();
-    void ParseResourceFolder(const std::filesystem::path& path);
+    void UnloadResources();
+    void LoadResources();
+    void LoadFolder(const std::filesystem::path& directory);
 
-    bool FindManifestFile(const std::filesystem::path& directory, std::filesystem::path& file);
-    bool FindSQLFile(const std::filesystem::path& directory, std::filesystem::path& file);
-    void ParseManifestFile(Resource& resource);
+private:
+    void LoadCategory(const std::filesystem::path& directory);
+    void LoadResource(const std::filesystem::path& directory);
 
 private:
     std::filesystem::path m_ResourcePath;
-    std::unordered_map<std::string, Resource> m_Resources;
+    std::unordered_map<std::string, Resource*> m_Resources;
 };
