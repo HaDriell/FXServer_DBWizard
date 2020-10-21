@@ -10,12 +10,16 @@ public:
     bool Load(const std::filesystem::path& directory);
 
     const std::string& GetName() const;
+    const std::vector<std::string>& GetDependencies() const;
+    const std::vector<std::string>& GetProvides() const;
+    const std::vector<std::filesystem::path>& GetSQLFiles() const;
 
     void Debug() const;
 
 private:
     bool FindManifestFile();
     bool ParseManifestFile();
+    void FindSQLFiles();
 	
 private:
     std::string m_Name;

@@ -3,125 +3,97 @@
 #include <iostream>
 #include <fstream>
 
-static bool LoadFileInMemory(const std::filesystem::path& file, std::vector<char>& buffer)
+#include "ByteBuffer.h"
+
+static bool __ReadStringWithDelimiter(ByteBuffer& buffer, const std::string& delimiter, std::string& value)
 {
-	//Not a File
-    if (!std::filesystem::is_regular_file(file))
+    if (!buffer.SkipWhitespaces())
     {
         return false;
     }
 
-	std::ifstream stream(file.string(), std::ios::binary | std::ios::ate);
-
-	//File failed to open
-	if (!stream.is_open())
-	{
-        return false;
-	}
-	
-    std::streamsize size = stream.tellg();
-    stream.seekg(0, std::ios::beg);
-
-	//File failed to read (WTF ?!)
-    buffer.resize(size);
-    if (!stream.read(buffer.data(), size))
+    if (!buffer.MatchToken(delimiter))
     {
         return false;
     }
-	
+
+    uint64_t begin = buffer.GetPosition();
+
+    if (!buffer.SkipUntilMatchToken(delimiter))
+    {
+        return false;
+    }
+
+    uint64_t end = buffer.GetPosition() - 1;
+
+    value = buffer.GetSubstring(begin, end);
+
     return true;
 }
 
-static bool ExpectWord(const std::string& word, const std::vector<char>& buffer, uint64_t position)
-{	
-	for (uint64_t i = 0; i < word.size(); ++i)
-	{
-        uint64_t index = position + i;
-
-        //Check BufferOverflow
-		if (index >= buffer.size())
-        {
-            return false;
-        }
-
-		//Check character equality
-		if (buffer[index] != word[i])
-		{
-            return false;
-		}
-	}
-
-    //Make sure that we hit the end of the buffer or that the last character is not alphanumerical
-    uint64_t endPosition = position + word.size();
-	if (endPosition < buffer.size())
-	{
-        return !std::isalnum(buffer[endPosition]);
-	}
-	
-    return true;
-}
-
-static bool FindWord(const std::string& word, const std::vector<char>& buffer, uint64_t position)
+static bool __ReadLUAString(ByteBuffer& buffer, std::string& value)
 {
-	for (uint64_t index = position; index < buffer.size(); ++index)
-	{
-        if (ExpectWord(word, buffer, index))
-        {
-            return true;
-        }
-	}
-	
-	return false;
-}
-
-static std::vector<uint64_t> FindAllWords(const std::string& word, const std::vector<char>& buffer, uint64_t position)
-{
-    std::vector<uint64_t> indices;
-
-	for (uint64_t index = position; index + word.size() < buffer.size(); ++index)
-	{
-		if (FindWord(word, buffer, index))
-		{
-            indices.push_back(index);
-		}
-	}
-
-    return indices;
-}
-
-static bool ParseLUAString(std::string& argument, const std::vector<char>& buffer, uint64_t position)
-{
-	//Left Trim
-    while (std::isspace(buffer[position]))
+    uint64_t position = buffer.GetPosition();
+    if (__ReadStringWithDelimiter(buffer, "\"", value))
     {
-        ++position;
+        return true;
     }
-	
-    char stringToken = buffer[position];
 
-	//Expect a String token
-	if (stringToken != '\'' && stringToken != '"')
-	{
+    buffer.SetPosition(position);
+    if (__ReadStringWithDelimiter(buffer, "'", value))
+    {
+        return true;
+    }
+
+    //Reset position in case of failure
+    buffer.SetPosition(position);
+    return false;
+}
+
+static bool __ReadLUAStringArray(ByteBuffer& buffer, std::vector<std::string>& array)
+{
+    //Trim
+    if (!buffer.SkipWhitespaces())
+    {
         return false;
-	}
+    }
 
-	uint64_t begin = position + 1;
-    uint64_t end = begin;
-	
-    //Find the next StringToken
-    while (buffer[end] != stringToken)
-	{
-        ++end;
+    //Expect Array beginning
+    if (!buffer.MatchToken("{"))
+    {
+        return false;
+    }
 
-		//Reaching end of buffer
-		if (end >= buffer.size())
-		{
-            return false;
-		}
-	}
+    while (buffer.HasRemainingBytes())
+    {
+        //Read LUAString
+        std::string entry;
+        if (!__ReadLUAString(buffer, entry))
+        {
+            break;
+        }
 
-	//Assign Argument
-    argument = std::string(buffer.begin() + begin, buffer.begin() + end);
+        array.push_back(entry);
+
+        //Trim
+        if (!buffer.SkipWhitespaces())
+        {
+            break;
+        }
+
+        //Expect Array element separator
+        if (buffer.MatchToken(","))
+        {
+            continue;
+        }
+
+        //Expect end of array
+        if (buffer.MatchToken("}"))
+        {
+            break;
+        }
+    }
+
     return true;
 }
 
@@ -145,12 +117,29 @@ bool Resource::Load(const std::filesystem::path& directory)
         return false;
     }
 
+    FindSQLFiles();
+
     return true;
 }
 
 const std::string& Resource::GetName() const
 {
     return m_Name;
+}
+
+const std::vector<std::string>& Resource::GetDependencies() const
+{
+    return m_Dependencies;
+}
+
+const std::vector<std::string>& Resource::GetProvides() const
+{
+    return m_Provides;
+}
+
+const std::vector<std::filesystem::path>& Resource::GetSQLFiles() const
+{
+    return m_SQLFiles;
 }
 
 void Resource::Debug() const
@@ -195,38 +184,69 @@ bool Resource::FindManifestFile()
 
 bool Resource::ParseManifestFile()
 {
-    std::vector<char> buffer;
-	if (!LoadFileInMemory(m_ManifestFile, buffer))
-	{
+    ByteBuffer buffer;
+
+    //Read the Manifest File
+    if (!buffer.Load(m_ManifestFile))
+    {
         return false;
-	}
+    }
 
 	//Reset the Dependencies & Provides declared
     m_Dependencies.clear();
     m_Provides.clear();
 
-    for (uint64_t index : FindAllWords("dependency", buffer, 0))
+    //Token pass : dependency
+    buffer.SetPosition(0);
+    while (buffer.SkipUntilMatchToken("dependency"))
     {
-        std::string name;
-        if (ParseLUAString(name, buffer, index + 10))
+        std::string resourceName;
+        if (__ReadLUAString(buffer, resourceName))
         {
-            m_Dependencies.push_back(name);
+            m_Dependencies.push_back(resourceName);
         }
     }
 
-    for (uint64_t index : FindAllWords("dependencies", buffer, 0))
+    //Token pass : dependencies
+    buffer.SetPosition(0);
+    while (buffer.SkipUntilMatchToken("dependencies"))
     {
-        //TODO : Parse a corresponding LUA List of String Arguments for each occurence
+        if (!__ReadLUAStringArray(buffer, m_Dependencies))
+        {
+            break;
+        }
     }
 
-    for (uint64_t index : FindAllWords("provide", buffer, 0))
+    //Token pass : provide
+    buffer.SetPosition(0);
+    while (buffer.SkipUntilMatchToken("provide"))
     {
-        std::string name;
-        if (ParseLUAString(name, buffer, index + 7))
+        std::string resourceName;
+        if (__ReadLUAString(buffer, resourceName))
         {
-            m_Provides.push_back(name);
+            m_Provides.push_back(resourceName);
         }
     }
 
     return true;
+}
+
+void Resource::FindSQLFiles()
+{
+    m_SQLFiles.clear();
+    for (const auto& entry : std::filesystem::directory_iterator(m_Directory))
+    {
+        std::filesystem::path file = entry.path();
+        if (!std::filesystem::is_regular_file(file))
+        {
+            continue;
+        }
+
+        if (file.extension() != ".sql")
+        {
+            continue;
+        }
+
+        m_SQLFiles.push_back(file);
+    }
 }

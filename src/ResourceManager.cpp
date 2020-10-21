@@ -45,6 +45,68 @@ void ResourceManager::LoadFolder(const std::filesystem::path& directory)
     }
 }
 
+Resource* ResourceManager::GetResource(const std::string& resourceName) const
+{
+    const auto& it = m_Resources.find(resourceName);
+    return it != m_Resources.end() ? it->second : nullptr;
+}
+
+bool ResourceManager::FindResourceWithNoUnresolvedDependencies(const std::vector<std::string>& availableResources, std::string& resourceName) const
+{
+    for (const auto& entry : m_Resources)
+    {
+        //Ignore Resource if it's name is already available
+        if (std::find(availableResources.begin(), availableResources.end(), entry.first) != availableResources.end())
+        {
+            continue;
+        }
+
+        //Ignore Resource if there is at least one of it's dependencies unavailable
+        bool hasUnresolvedDependencies = false;
+        for (const std::string& dependencyName : entry.second->GetDependencies())
+        {
+            if (std::find(availableResources.begin(), availableResources.end(), dependencyName) == availableResources.end())
+            {
+                hasUnresolvedDependencies = true;
+                break;
+            }
+        }
+        if (hasUnresolvedDependencies)
+        {
+            continue;
+        }
+
+        //This Resource is eligible
+        resourceName = entry.first;
+        return true;
+    }
+
+    return false;
+}
+
+bool ResourceManager::ResolveLoadedResourcesDependencies(std::vector<std::string>& loadOrder) const
+{
+    std::vector<std::string> availableResources;
+    std::string resourceName;
+    while (FindResourceWithNoUnresolvedDependencies(availableResources, resourceName))
+    {
+        const auto& it = m_Resources.find(resourceName);
+
+        //This Resource can be loaded now
+        loadOrder.push_back(it->first);
+
+        //Append the provided resources to the list of available resources
+        availableResources.push_back(resourceName);
+        for (const std::string& providedResourceName : it->second->GetProvides())
+        {
+            availableResources.push_back(providedResourceName);
+        }
+    }
+
+    //We failed if loadOrder does not include exaclty the same amount of resources from Resources
+    return loadOrder.size() == m_Resources.size();
+}
+
 void ResourceManager::Debug()
 {
     std::cout << "Loaded Resources:" << "\n";
