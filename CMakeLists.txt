@@ -12,3 +12,7 @@ target_compile_features(FXServer_DBWizard PRIVATE cxx_std_17)
 
 #Project Includes
 target_include_directories(FXServer_DBWizard PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+	target_link_libraries(FXServer_DBWizard PUBLIC stdc++fs)
+endif()
