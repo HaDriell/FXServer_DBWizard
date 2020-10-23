@@ -1,7 +1,6 @@
 #include "Resource.h"
 
 #include <iostream>
-#include <fstream>
 
 #include "ByteBuffer.h"
 
